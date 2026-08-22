@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Tool scan caches and temp work
+.testwright-cache/
+.tmp/
+tmp/
+
+# Node (used by the JS corpus fixtures)
+node_modules/
+package-lock.json
+
+# Coverage artifacts produced while testing the tool
+.coverage*
+htmlcov/
+coverage-final.json
+coverage-summary.json
+
+# OS noise
+Thumbs.db
+.DS_Store
+
+# Never commit secrets
+.env
+.env.*
+*.pem
+*.key
