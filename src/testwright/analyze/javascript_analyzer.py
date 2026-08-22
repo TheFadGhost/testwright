@@ -22,7 +22,7 @@ from .js_scan import (
 
 _IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
 
-_FUNC_DECL = re.compile(rf"\b(?:(async)\s+)?function\s*\*?\s*({_IDENT})\s*\(")
+_FUNC_DECL = re.compile(rf"\b(?:(async)\s+)?function\s*\*?\s*({_IDENT})\s*(?:<[^()>]*>)?\(")
 _ARROW_ASSIGN = re.compile(
     rf"\b(?:const|let|var)\s+({_IDENT})\s*(?::[^=;\n]+)?=\s*(async\s+)?(?:\(([^()]*)\)|({_IDENT}))\s*=>"
 )
@@ -53,8 +53,18 @@ def _clean_jsdoc(text: str) -> str:
 
 def _find_jsdoc(src: str, decl_start: int) -> tuple[str | None, int]:
     j = decl_start - 1
-    while j >= 0 and src[j] in " \t\r\n":
-        j -= 1
+    # walk back over whitespace and declaration keywords such as `export`
+    while j >= 0:
+        ch = src[j]
+        if ch in " \t\r\n":
+            j -= 1
+            continue
+        if ch.isalnum() or ch in "_$":
+            word_end = j + 1
+            while j >= 0 and (src[j].isalnum() or src[j] in "_$"):
+                j -= 1
+            continue
+        break
     end = j + 1
     if j >= 1 and src[j] == "/" and src[j - 1] == "*":
         k = src.rfind("/**", 0, j)

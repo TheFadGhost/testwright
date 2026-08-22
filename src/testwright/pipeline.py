@@ -458,10 +458,10 @@ def run_pipeline(
         # write phase
         if do_write:
             guard = WriteGuard(root)
-            from .fsutil import write_new_file
+            from .fsutil import write_new_file, contained
 
             for gen in result.generated:
-                dest = root / gen["file"].replace("/", __import__("os").sep)
+                dest = contained(root, Path(*gen["file"].split("/")))
                 write_new_file(dest, gen["content"])
                 guard.record(gen["file"])
     return result

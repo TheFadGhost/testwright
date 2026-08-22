@@ -40,7 +40,8 @@ def test_file_path(conv: Conventions, source_rel: str) -> str:
     for token in ("{parent_dirs}", "{dir}"):
         out = out.replace(token, parent_dirs)
     out = out.replace("{stem}", stem)
-    return to_posix(posixpath.normpath(out))
+    rendered = to_posix(posixpath.normpath(out))
+    return rendered.lstrip("/")
 
 
 def _module_language_counts(model: CodeModel) -> dict[str, int]:

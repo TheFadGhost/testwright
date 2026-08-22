@@ -94,7 +94,7 @@ def _load(path_str: str, config_flag: str | None, include, exclude, top):
 
 def cmd_scan(args) -> int:
     root, config = _load(args.path, args.config, args.include, args.exclude, args.top)
-    progress = Progress(quiet=args.quiet, verbose=args.verbose)
+    progress = Progress(quiet=args.quiet or args.json, verbose=args.verbose)
     model = build_model(root, config, progress)
     conv = detect(root, model)
     covered: dict[str, float] = {}
@@ -164,7 +164,7 @@ def _changed_files(root) -> set[str]:
 
 def cmd_generate(args) -> int:
     root, config = _load(args.path, args.config, args.include, args.exclude, args.top)
-    progress = Progress(quiet=args.quiet, verbose=args.verbose)
+    progress = Progress(quiet=args.quiet or args.json, verbose=args.verbose)
     model = build_model(root, config, progress)
     conv = detect(root, model)
     covered: dict[str, float] = {}
@@ -224,6 +224,7 @@ def cmd_generate(args) -> int:
 def cmd_clean(args) -> int:
     root, _config = _load(args.path, args.config, [], [], None)
     guard = WriteGuard(root)
+    written = guard.written_files()
     removed = 0
     for rel in sorted(written, reverse=True):
         p = root / rel.replace("/", "\\")

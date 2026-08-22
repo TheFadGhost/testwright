@@ -63,7 +63,7 @@ class WriteGuard:
 
     def load(self) -> dict[str, list[str]]:
         if not self.manifest_path.exists():
-            return {}
+            return {"written": []}
         try:
             data = json.loads(self.manifest_path.read_text(encoding="utf-8"))
             return {"written": list(data.get("written", []))}

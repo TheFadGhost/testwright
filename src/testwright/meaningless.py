@@ -63,6 +63,33 @@ class _PythonTestVisitor(ast.NodeVisitor):
         if self._check_compare(node):
             self.trivial_asserts += 1
 
+    def visit_Call(self, node: ast.Call) -> None:
+        func = node.func
+        name = getattr(func, "attr", None) or (
+            func.id if isinstance(func, ast.Name) else ""
+        )
+        if isinstance(name, str) and name.startswith("assert") and len(name) > 6:
+            self.assert_count += 1
+            arg_names = {
+                n.id
+                for a in node.args
+                for n in ast.walk(a)
+                if isinstance(n, ast.Name)
+            }
+            if arg_names & self.bound_names:
+                self.assert_referenced_bound = True
+            if len(node.args) == 2 and all(
+                isinstance(a, ast.Name) for a in node.args
+            ):
+                if node.args[0].id == node.args[1].id:
+                    self.trivial_asserts += 1
+            if any(isinstance(a, ast.Constant) and a.value is True for a in node.args) and name in (
+                "assertTrue",
+                "assert",
+            ):
+                self.trivial_asserts += 1
+        self.generic_visit(node)
+
 
 def check_python_test(source: str) -> MeaningVerdict:
     try:
