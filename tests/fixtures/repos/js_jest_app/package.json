@@ -1,0 +1,13 @@
+{
+  "name": "js-jest-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Original fixture app for Testwright's JavaScript corpus",
+  "main": "src/math.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

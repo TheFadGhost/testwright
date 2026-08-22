@@ -16,7 +16,7 @@ class Progress:
     def __init__(self, quiet: bool = False, verbose: bool = False) -> None:
         self.quiet = quiet
         self.verbose = verbose
-        self._stream = sys.stderr
+        self._stream = sys.stdout
         self._last_was_item = False
 
     def phase(self, message: str) -> None:
