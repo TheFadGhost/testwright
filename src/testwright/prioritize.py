@@ -65,6 +65,14 @@ def rank_targets(
             continue
         if f.name.startswith("test_"):
             continue
+        # never target code inside existing test/helper files or fixtures
+        base = f.file.rsplit("/", 1)[-1]
+        if base.startswith("test_") or base.endswith("_test") or base == "conftest.py":
+            continue
+        if any(d == "tests" or d == "test" for d in f.file.split("/")[:-1]) and base != "__init__.py":
+            continue
+        if any("fixture" in d for d in f.decorators):
+            continue
         cov = covered_fraction.get(f.id)
         referenced_by_tests = any(f.name in n for n in existing_test_names)
         if cov is None:
