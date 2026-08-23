@@ -12,7 +12,7 @@ from .analyze import build_model
 from .config import load_config
 from .conventions import detect
 from .diffpreview import render_diff
-from .errors import TestwrightError
+from .errors import TestwrightError, UsageError
 from .pipeline import run_pipeline
 from .progress import Progress
 from .report import render_text, to_json_dict
@@ -48,6 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="analyze the repository, rank untested functions, explain priorities",
     )
     _common(scan)
+    scan.add_argument("--explain", default=None, metavar="FUNC",
+                      help="print the full ranking rationale for FUNC")
 
     gen = sub.add_parser(
         "generate",
@@ -64,6 +66,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="create the new test files (verified tests only)")
     gen.add_argument("--mutate", action="store_true",
                      help="mutation-validate surviving tests (Python targets)")
+    gen.add_argument("--backend", default=None,
+                     help='"template" (default) or "command:<generator command>"')
     gen.add_argument("--timeout", type=float, default=120.0,
                      help="per-command timeout in seconds (default 120)")
     gen.add_argument("--report", default=None,
@@ -80,8 +84,10 @@ def build_parser() -> argparse.ArgumentParser:
 def _load(path_str: str, config_flag: str | None, include, exclude, top):
     root = Path(path_str).resolve()
     if not root.exists():
-        raise TestwrightError(f"target path does not exist: {root}",
-                              next_step="pass the root of an existing repository")
+        raise UsageError(
+            f"target path does not exist: {root}",
+            next_step="pass the root of an existing repository",
+        )
     config = load_config(root, Path(config_flag) if config_flag else None)
     if include:
         config.include = list(include)
@@ -135,7 +141,22 @@ def cmd_scan(args) -> int:
     progress.line(color.accent(f"Ranked untested functions ({len(ranked)})"))
     for r in ranked[:20]:
         progress.line(f"  {r.score:>6.2f}  {r.func.id}")
-    if args.verbose and ranked:
+    if args.explain:
+        from .prioritize import explain as explain_target
+
+        match = next(
+            (r for r in ranked if r.func.name == args.explain
+             or r.func.qualname == args.explain or r.func.id.endswith("::" + args.explain)),
+            None,
+        )
+        if match is None:
+            raise UsageError(
+                f"function not among ranked targets: {args.explain}",
+                next_step="run without --explain to list ranked targets",
+            )
+        progress.line("")
+        progress.line(explain_target(match))
+    elif args.verbose and ranked:
         progress.line("")
         for r in ranked[:3]:
             progress.line(explain(r))
@@ -191,6 +212,7 @@ def cmd_generate(args) -> int:
         mutate=args.mutate,
         timeout=args.timeout,
         progress=progress,
+        backend_spec=args.backend or config.backend,
     )
 
     if args.json:
@@ -223,11 +245,20 @@ def cmd_generate(args) -> int:
 
 def cmd_clean(args) -> int:
     root, _config = _load(args.path, args.config, [], [], None)
+def cmd_clean(args) -> int:
+    root, _config = _load(args.path, args.config, [], [], None)
     guard = WriteGuard(root)
     written = guard.written_files()
     removed = 0
+    warnings: list[str] = []
+    from .fsutil import contained
+
     for rel in sorted(written, reverse=True):
-        p = root / rel.replace("/", "\\")
+        try:
+            p = contained(root, Path(*rel.split("/")))
+        except TestwrightError:
+            warnings.append(f"manifest entry escapes the target root, skipped: {rel}")
+            continue
         if p.is_file():
             p.unlink()
             removed += 1
@@ -240,9 +271,12 @@ def cmd_clean(args) -> int:
         if not remaining:
             manifest.unlink()
     if args.json:
-        print(json.dumps({"schema": "testwright.clean/1", "removed": removed}))
+        print(json.dumps({"schema": "testwright.clean/1", "removed": removed,
+                          **({"warnings": warnings} if warnings else {})}))
     else:
         print(f"removed {removed} generated file(s); no other files were touched")
+        for w in warnings:
+            print(f"warning: {w}", file=sys.stderr)
     return 0
 
 

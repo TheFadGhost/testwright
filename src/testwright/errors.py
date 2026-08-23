@@ -11,7 +11,7 @@ step. The CLI renders these in the DESIGN.md error shape:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -20,7 +20,6 @@ class TestwrightError(Exception):
     file: str | None = None
     function: str | None = None
     next_step: str | None = None
-    hint: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         super().__init__(self.message)
@@ -31,8 +30,6 @@ class TestwrightError(Exception):
             lines.append(f"  file: {self.file}")
         if self.function:
             lines.append(f"  function: {self.function}")
-        for h in self.hint:
-            lines.append(f"  {h}")
         if self.next_step:
             lines.append(f"  next step: {self.next_step}")
         return "\n".join(lines)

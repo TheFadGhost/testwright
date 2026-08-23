@@ -211,5 +211,16 @@ def detect_python(root: Path, model: CodeModel) -> Conventions:
         assertion_style=assertion_style,
         fixture_style=fixture_style,
         name_style="snake_case",
+        main_guard=_has_main_guard(root, test_files),
         evidence=evidence,
     )
+
+
+def _has_main_guard(root: Path, test_files: list[str]) -> bool:
+    for rel in test_files:
+        try:
+            if "unittest.main()" in read_text(root / rel):
+                return True
+        except OSError:
+            continue
+    return False

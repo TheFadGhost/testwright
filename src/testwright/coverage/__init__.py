@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..errors import TestwrightError
+from ..errors import TestwrightError, UsageError
 from ..fsutil import read_text, to_posix
 from ..model import CodeModel
 
@@ -47,7 +47,7 @@ def parse_coverage(path: Path, root: Path) -> CoverageReport:
         payload = None
     if isinstance(payload, dict) and isinstance(payload.get("files"), dict):
         return coveragepy.parse(payload, path, root)
-    raise TestwrightError(
+    raise UsageError(
         f"could not recognize the coverage report format: {to_posix(path)}",
         file=str(path),
         next_step=(
@@ -70,11 +70,11 @@ def normalize_path(raw: str, root: Path) -> str:
         if len(part) == 2 and part[1] == ":":
             continue
         suffix = "/".join(parts[i:])
-        if not suffix or Path(suffix).is_absolute():
+        if not suffix or Path(suffix).is_absolute() or ".." in suffix.split("/"):
             continue
         if (root / suffix).exists():
             return suffix
-    return text
+    return text.lstrip("/")
 
 
 def _exact_relpath(raw: str, root: Path) -> str | None:

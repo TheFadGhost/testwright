@@ -25,8 +25,6 @@ class _PythonTestVisitor(ast.NodeVisitor):
         self.trivial_asserts = 0
         self.bound_names: set[str] = set()
         self.assert_referenced_bound = False
-        self.has_todo = False
-        self.has_commented_code = False
 
     def visit_Assign(self, node: ast.Assign) -> None:
         for t in node.targets:
@@ -98,10 +96,8 @@ def check_python_test(source: str) -> MeaningVerdict:
         return MeaningVerdict(False, f"generated test does not parse ({exc.lineno})")
     visitor = _PythonTestVisitor()
     visitor.visit(tree)
-    if visitor.has_todo or "TODO" in source or "FIXME" in source:
+    if "TODO" in source or "FIXME" in source:
         return MeaningVerdict(False, "contains TODO/FIXME marker")
-    if re.search(r"^\s*#\s*\w+\s*$", source, re.MULTILINE) and False:
-        pass
     if visitor.assert_count == 0:
         return MeaningVerdict(False, "no assertion in test body")
     if visitor.trivial_asserts == visitor.assert_count:
@@ -113,38 +109,41 @@ def check_python_test(source: str) -> MeaningVerdict:
     return MeaningVerdict(True)
 
 
-_EXPECT_TRIVIAL = [
-    r"expect\(\s*true\s*\)",
-    r"expect\(\s*false\s*\)",
-]
-
-
 def check_js_test(source: str) -> MeaningVerdict:
     stripped = re.sub(r"//[^\n]*", "", source)
     stripped = re.sub(r"/\*.*?\*/", "", stripped, flags=re.DOTALL)
     if "TODO" in source or "FIXME" in source:
         return MeaningVerdict(False, "contains TODO/FIXME marker")
-    expect_calls = re.findall(r"expect\s*\(([^()]*)\)\s*\.\s*(\w+)\s*\(", source)
-    if not expect_calls and not re.search(r"\bassert\b", source):
+    # expect(...) with a single nesting level of parens inside
+    expect_calls = re.findall(r"expect\s*\(((?:[^()]|\([^()]*\))*)\)\s*\.\s*(\w+)\s*\(", source)
+    throws = re.findall(r"\.\s*(?:toThrow|toThrowError)\s*\(", source)
+    if not expect_calls and not throws and not re.search(r"\bassert\b", source):
         return MeaningVerdict(False, "no assertion in test body")
-    nontrivial = 0
+    nontrivial = len(throws)
     for target, matcher in expect_calls:
         t = target.strip()
-        trivial = (
-            t in ("true", "false", "null", "undefined")
-            or re.fullmatch(r"[A-Za-z_$][\w$]*", t)
-            and re.search(rf"\b{re.escape(t)}\s*===?\s*{re.escape(t)}\b", stripped)
-        )
+        if matcher in (
+            "toBeCloseTo",
+            "toBeGreaterThan",
+            "toBeGreaterThanOrEqual",
+            "toBeLessThan",
+            "toBeLessThanOrEqual",
+            "toContain",
+            "toMatch",
+            "toHaveLength",
+            "toThrow",
+            "toThrowError",
+        ):
+            nontrivial += 1
+            continue
+        trivial = t in ("true", "false", "null", "undefined")
         if matcher in ("toBe", "toEqual", "toStrictEqual", "toBeNull", "toBeTruthy") and not trivial:
             nontrivial += 1
     plain_asserts = re.findall(r"assert\.(\w+)\s*\(([^()]*)\)", source)
-    for name, args in plain_asserts:
+    for _name, args in plain_asserts:
         parts = [a.strip() for a in args.split(",")]
         if len(parts) >= 2 and parts[0] != parts[1]:
             nontrivial += 1
     if nontrivial == 0:
         return MeaningVerdict(False, "every assertion can trivially pass")
-    for pat in _EXPECT_TRIVIAL:
-        if re.fullmatch(pat.strip(), ""):
-            continue
     return MeaningVerdict(True)

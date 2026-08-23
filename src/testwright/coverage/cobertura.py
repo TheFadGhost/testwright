@@ -5,7 +5,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from ..errors import TestwrightError
+from ..errors import UsageError
 from . import FileCoverage, CoverageReport, normalize_path
 
 
@@ -14,7 +14,7 @@ def parse(text: str, report_path: Path, root: Path) -> CoverageReport:
     try:
         tree = ET.fromstring(text)
     except ET.ParseError as exc:
-        raise TestwrightError(
+        raise UsageError(
             f"malformed cobertura XML: {exc}",
             file=str(report_path),
             next_step="regenerate the report; it is truncated or not well-formed XML",

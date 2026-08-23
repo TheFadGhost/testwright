@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,12 +37,8 @@ def _git_last_commit_ts(root: Path, rel_file: str) -> int | None:
 def _recency_component(ts: int | None) -> float:
     if ts is None:
         return 0.0
-    import time
-
     age_days = max((time.time() - ts) / 86400.0, 0.0)
     # newer is more important; 30 days or newer scores 1, a year old ~0
-    import math
-
     return max(0.0, 1.0 - math.log1p(age_days) / math.log1p(365))
 
 
@@ -101,7 +99,7 @@ def rank_targets(
             "exported": f.exported,
             "covered_fraction": cov if cov is not None else "no coverage data",
             "last_commit_days_ago": (
-                None if ts is None else round((__import__("time").time() - ts) / 86400, 1)
+                None if ts is None else round((time.time() - ts) / 86400, 1)
             ),
         }
         ranked.append(rt)
@@ -125,3 +123,4 @@ def explain(target: RankedTarget) -> str:
         f"  coverage of body lines: {target.raw.get('covered_fraction')}",
     ]
     return "\n".join(lines)
+

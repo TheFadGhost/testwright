@@ -16,8 +16,14 @@ SKIP_DIRS = {"node_modules", ".git", "dist", "build", ".tmp"}
 TEST_NAME_PATTERNS = (
     "*.test.js",
     "*.spec.js",
+    "*.test.jsx",
+    "*.spec.jsx",
     "*.test.ts",
     "*.spec.ts",
+    "*.test.tsx",
+    "*.spec.tsx",
+    "*.test.mjs",
+    "*.test.cjs",
 )
 
 _FRAMEWORK_PRIORITY = ("jest", "vitest", "mocha")
@@ -40,7 +46,9 @@ def _framework_from_package_json(pj_path: Path) -> str | None:
     for section in ("devDependencies", "dependencies"):
         deps.update(data.get(section, {}).keys())
     for framework in _FRAMEWORK_PRIORITY:
-        if any(framework in dep for dep in deps):
+        # exact dependency names only: substring matches would let packages
+        # like esbuild-jest masquerade as the project's runner
+        if framework in deps:
             return framework
     return None
 

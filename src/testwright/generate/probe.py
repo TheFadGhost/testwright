@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -229,8 +230,10 @@ def probe_python(
     with temp_dir(prefix="tw-probe-") as tmp:
         script = tmp / "probe.py"
         script.write_text(_PROBE_SCRIPT, encoding="utf-8")
+        from ..runners import target_python
+
         res = run_command(
-            ["python", str(script), json.dumps(payload)], root, timeout=timeout
+            [target_python(), str(script), json.dumps(payload)], root, timeout=timeout
         )
     if res.timed_out:
         return ProbeResult(ok=False, timed_out=True)
@@ -252,8 +255,13 @@ def probe_python(
     )
 
 
-def repr_is_comparable(repr_text: str) -> bool:
-    """True when the repr round-trips to an equal value (safe to assert on)."""
+def repr_is_comparable(repr_text: str | None) -> bool:
+    """True when the repr round-trips to an equal value (safe to assert on).
+
+    This gate doubles as an injection guard: only literals that evaluate back
+    to themselves ever reach a generated assertion, so a target object cannot
+    smuggle arbitrary source into a written test through its __repr__.
+    """
     if repr_text is None:
         return False
     if re.search(r"0x[0-9a-fA-F]+", repr_text):
@@ -279,7 +287,7 @@ def probe_javascript(
 ) -> ProbeResult:
     """Probe a JS function via node; only JSON-safe results are comparable."""
     args_json = ",".join(_literal_to_json(a) for a in case.args)
-    npx = "npx.cmd" if __import__("sys").platform == "win32" else "npx"
+    npx = "npx.cmd" if sys.platform == "win32" else "npx"
     script = (
         "const path = require('path');\n"
         "const modPath = path.resolve(process.argv[2]);\n"

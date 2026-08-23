@@ -94,14 +94,22 @@ def discover_files(root: Path, config: Config) -> list[Path]:
 def build_model(root: Path, config: Config, progress: Progress | None = None) -> CodeModel:
     enabled_languages(config)  # validates that something is enabled
     analyzers: dict[str, Analyzer] = {}
-    for key in ("python", "javascript"):
-        cfg = config.languages.get(key) or config.languages.get("typescript")
-        if cfg and not cfg.enabled and key == "python":
-            continue
-        cls = ANALYZERS.get(key)
-        if cls and (cfg is None or cfg.enabled or key != "python"):
-            if key not in analyzers:
-                analyzers[key] = cls()
+    # typescript config folds into the javascript analyzer as an alias
+    js_cfg = config.languages.get("javascript") or config.languages.get("typescript")
+    py_cfg = config.languages.get("python")
+    if py_cfg is None or py_cfg.enabled:
+        cls = ANALYZERS.get("python")
+        if cls:
+            analyzers["python"] = cls()
+    if js_cfg is None or js_cfg.enabled:
+        cls = ANALYZERS.get("javascript")
+        if cls:
+            analyzers["javascript"] = cls()
+    if not analyzers:
+        raise UsageError(
+            "every language analyzer is disabled",
+            next_step="enable at least one [languages.<name>] section in testwright.toml",
+        )
 
     model = CodeModel(root=root)
     files = [

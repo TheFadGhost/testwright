@@ -15,7 +15,7 @@ def render_diff(rel_path: str, content: str, context: int = 3) -> str:
     diff = difflib.unified_diff(
         [],
         lines,
-        fromfile=f"/dev/null",
+        fromfile="/dev/null",
         tofile=f"b/{rel_path}",
         n=context,
         lineterm="",

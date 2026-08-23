@@ -5,10 +5,13 @@ from __future__ import annotations
 import json as jsonlib
 import re
 
-from . import CandidateTest, GenerationUnit, GeneratorBackend
 from ..conventions import Conventions
 from ..model import CodeModel, FunctionInfo
-from .probe import ProbeCase, ProbeResult
+from . import CandidateTest, GenerationUnit, GeneratorBackend
+from .probe import ProbeCase, ProbeResult, repr_is_comparable
+
+_FLOATY = re.compile(r"-?\d+\.\d{11,}")
+_SAFE_PATH = re.compile(r"[A-Za-z0-9_\-./]+")
 
 
 def _rel_import(test_rel: str, source_rel: str) -> str:
@@ -22,7 +25,6 @@ def _rel_import(test_rel: str, source_rel: str) -> str:
         else:
             break
     ups = [".."] * (len(test_parts) - depth)
-    downs = [p for p in src_parts[:len(src_parts) - 1][depth:]] if False else []
     downs = [p for p in src_parts[:-1][depth:]]
     parts = ups + downs + [src_name]
     path = "/".join(parts)
@@ -31,8 +33,15 @@ def _rel_import(test_rel: str, source_rel: str) -> str:
     return path
 
 
-def _is_esm(source: str) -> bool:
-    return bool(re.search(r"^\s*export\s+(const|function|class|default|\{)", source, re.MULTILINE))
+def _expect_line(expected: str) -> str:
+    if _FLOATY.fullmatch(expected):
+        return f"    expect(result).toBeCloseTo({expected}, 10);"
+    return f"    expect(result).toEqual({expected});"
+
+
+def _js_str(text: str) -> str:
+    """A safely escaped double-quoted JS string literal."""
+    return jsonlib.dumps(text)
 
 
 class JavaScriptTemplateBackend(GeneratorBackend):
@@ -46,18 +55,25 @@ class JavaScriptTemplateBackend(GeneratorBackend):
         probes: dict | None = None,
     ) -> list[GenerationUnit]:
         framework = conventions.framework or "jest"
-        units: list[GenerationUnit] = []
         by_file: dict[str, GenerationUnit] = {}
         for func, cases in targets:
             mod = model.modules.get(func.file)
             if mod is None or mod.parse_error:
                 continue
-            esm = bool(re.search(r"\bexport\s+", "\n".join(
-                f.source for f in mod.functions if f.source
-            )))
+            esm = bool(
+                re.search(r"\bexport\s+", "\n".join(f.source for f in mod.functions if f.source))
+            )
             if framework == "jest" and esm:
-                continue  # jest without babel cannot execute ESM candidates
-            usable = [(c, r) for c, r in cases if r.ok and r.repr_ is not None]
+                continue  # jest without a babel setup cannot execute ESM candidates
+            usable = [(c, r) for c, r in cases if r.ok and repr_is_comparable(r.repr_)]
+            raised = [
+                (c, r.error_type)
+                for c, r in cases
+                if not r.ok
+                and r.error_type
+                and r.error_type
+                not in ("TimeoutError", "NoOutput", "BadProbeOutput", "ImportError", "NotFound")
+            ]
             if not usable:
                 continue
             unit = by_file.get(func.file)
@@ -71,14 +87,12 @@ class JavaScriptTemplateBackend(GeneratorBackend):
                     else f"{parent}/{stem}{suffix}" if parent else f"{stem}{suffix}"
                 )
                 import_path = _rel_import(test_rel, func.file)
-                names = sorted({t.name for t in []})
+                if not _SAFE_PATH.fullmatch(import_path) or not _SAFE_PATH.fullmatch(test_rel):
+                    continue  # unsafe names are skipped rather than escaped into code
                 symbols = sorted(
                     {f.qualname.split(".")[0] for f, _ in targets if f.file == func.file}
                 )
-                if esm:
-                    imp = f"import {{ {', '.join(symbols)} }} from '{import_path}';"
-                else:
-                    imp = f"const {{ {', '.join(symbols)} }} = require('{import_path}');"
+                imp = f"const {{ {', '.join(symbols)} }} = require('{import_path}');"
                 unit = GenerationUnit(
                     target_file=func.file,
                     test_file=test_rel,
@@ -91,15 +105,22 @@ class JavaScriptTemplateBackend(GeneratorBackend):
                 cand = self._candidate(func, case, result)
                 if cand:
                     unit.tests.append(cand)
-        units = list(by_file.values())
-        return units
+            seen_errors: set[str] = set()
+            for case_c, err in raised:
+                if err in seen_errors:
+                    continue
+                seen_errors.add(err)
+                cand = self._raises_candidate(func, case_c, err)
+                if cand:
+                    unit.tests.append(cand)
+        return list(by_file.values())
 
     @staticmethod
     def _candidate(func: FunctionInfo, case: ProbeCase, result: ProbeResult) -> CandidateTest | None:
         if func.is_async:
             return None
         expected = result.repr_
-        if expected is None:
+        if expected is None or not repr_is_comparable(expected):
             return None
         try:
             jsonlib.loads(expected)
@@ -107,12 +128,25 @@ class JavaScriptTemplateBackend(GeneratorBackend):
             return None
         call_target = func.qualname
         args_src = ", ".join(_js_args(case.args))
-        it_name = f"{func.qualname}({args_src})"
+        it_name = _js_str(f"{func.qualname}({args_src})")
         code = (
-            f"  it('{it_name}', () => {{\n"
+            f"  it({it_name}, () => {{\n"
             f"    const result = {call_target}({args_src});\n"
             f"\n"
-            f"    expect(result).toEqual({expected});\n"
+            f"{_expect_line(expected)}\n"
+            f"  }});"
+        )
+        return CandidateTest(name=it_name, code=code, function_id=func.id)
+
+    @staticmethod
+    def _raises_candidate(func: FunctionInfo, case: ProbeCase, err: str) -> CandidateTest | None:
+        if func.is_async or not re.fullmatch(r"[A-Za-z_$][\w$]*", err):
+            return None
+        args_src = ", ".join(_js_args(case.args))
+        it_name = _js_str(f"{func.qualname}({args_src}) throws {err}")
+        code = (
+            f"  it({it_name}, () => {{\n"
+            f"    expect(() => {func.qualname}({args_src})).toThrow({err});\n"
             f"  }});"
         )
         return CandidateTest(name=it_name, code=code, function_id=func.id)
@@ -127,20 +161,18 @@ def _js_args(args: list[str]) -> list[str]:
             out.append("false")
         elif a == "None":
             out.append("null")
-        elif a == "[1, 2, 3]":
-            out.append("[1, 2, 3]")
         else:
             out.append(a)
     return out
 
 
-def js_render(unit: GenerationUnit) -> str:
+def js_render(unit: GenerationUnit, kept_names: set[str]) -> str:
     lines: list[str] = []
     lines.extend(unit.header_lines)
     lines.append("")
     stem = unit.target_file.rsplit("/", 1)[-1].rsplit(".", 1)[0]
-    lines.append(f"describe('{stem}', () => {{")
-    body = "\n\n".join(t.code for t in unit.tests)
+    lines.append(f"describe({_js_str(stem)}, () => {{")
+    body = "\n\n".join(t.code for t in unit.tests if t.name in kept_names)
     lines.append(body)
     lines.append("});")
     return "\n".join(lines) + "\n"

@@ -115,21 +115,15 @@ class CodeModel:
         return out
 
     def fan_in(self, func: FunctionInfo) -> int:
-        """Number of distinct other modules referencing this function's name."""
+        """Number of distinct other modules importing this function's module symbol."""
         count = 0
         for mod in self.modules.values():
             if mod.file == func.file:
                 continue
-            referenced = False
             for imp in mod.imports:
                 if func.name in imp.names or (
                     imp.module and func.qualname.split(".")[0] in imp.names
                 ):
-                    referenced = True
+                    count += 1
                     break
-            if not referenced:
-                # crude textual call reference within the module body
-                pass
-            if referenced:
-                count += 1
         return count

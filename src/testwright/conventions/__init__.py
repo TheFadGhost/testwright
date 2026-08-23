@@ -27,6 +27,7 @@ class Conventions:
     assertion_style: str = "none"  # "plain_assert"|"unittest_assert"|"chai_expect"|"node_assert"|"none"
     fixture_style: str = "none"  # "fixtures"|"setup_methods"|"before_each"|"none"
     name_style: str = "snake_case"  # "snake_case"|"camelCase"
+    main_guard: bool = False  # repo's unittest files end with unittest.main()
     evidence: list[str] = field(default_factory=list)
 
 

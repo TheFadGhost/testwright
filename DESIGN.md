@@ -26,13 +26,23 @@ deliverable with the same rigour as the CLI.
   `<name>.test.js` / `<name>.spec.js` for JavaScript).
 - **Naming pattern**
   - Python: `test_<function>` for the primary case, `test_<function>_<scenario>`
-    for edge cases. Scenario words are drawn from the inputs used:
-    `test_divide_rejects_zero_divisor`. Methods: `test_<Class>_<method>`.
-  - JavaScript: `describe('<module>')` containing `it('<scenario>')`; scenario
-    sentences read like `returns the quotient for two integers`.
-- **Arrangement**: arrange–act–assert with blank lines between phases. Arrange is
-  inline literals; no shared mutable state between tests. If the repository's own
-  tests use fixtures/setup idioms for equivalent work, Testwright matches them.
+    for edge cases. Scenario slugs name the inputs used, because the
+    deterministic backend pins behaviour rather than intent:
+    `test_bracket_rate_with_10001`. Methods: `test_<Class>_<method>`.
+    Error-path candidates: `test_<function>_raises_<ErrorType>`.
+  - JavaScript: `describe('<module>')` containing `it('<call signature>')`;
+    the call echo (`it('mean([1, 2, 3])')`) is deliberate — it names the exact
+    inputs whose behaviour was pinned and matches the call-echo idiom common in
+    existing suites. Error paths: `it('f(...) throws RangeError')`.
+- **Floating-point expectations**: exact equality only when the value is exactly
+  representable or the function itself quantizes its output (e.g. returns
+  `round(x, 2)`); otherwise the generator switches matchers automatically
+  (`pytest.approx` / `assertAlmostEqual(places=10)` / `toBeCloseTo(x, 10)`).
+  A repr longer than ten decimal digits triggers the tolerance matcher.
+- **Arrangement**: arrange–act–assert with blank lines between phases, and a
+  blank line between methods in unittest classes. Arrange is inline literals;
+  no shared mutable state between tests. When sibling test files end with
+  `unittest.main()`, generated unittest files do too.
 - **Comment policy**: no comments. A module-level docstring of one line is emitted
   when the target repo's tests have one (`"""Tests for pkg.module."""`). Comments
   must never restate what the code does. No TODOs anywhere, ever.
@@ -117,7 +127,7 @@ Key `generate` flags:
 | `--execute`   | grant permission to run the target project's code (required for verification) |
 | `--write`     | create new test files (requires verified tests; refuses otherwise) |
 | `--mutate`    | mutation-validate each surviving test (Python targets)         |
-| `--changed`   | restrict to files changed vs the git merge-base                |
+| `--changed`   | restrict to files changed vs HEAD                              |
 
 Default run (no flags beyond a path): scan, generate candidates, print diff
 previews, print summary. Nothing is executed and nothing is written.
@@ -219,9 +229,17 @@ to stdout (logs go to stderr). Schema documented in README and versioned as
 
 `analyze -> prioritize -> generate -> verify -> report`. The code model
 (`src/testwright/model.py`) is the contract between language analyzers and
-generators. Generation backends implement `GeneratorBackend`; verification is
-mandatory and sits downstream of every backend, so no backend can emit an
-unverified test. The sandbox bounds execution by wall-clock timeout and process
-tree kill; on POSIX, address-space rlimits are additionally applied. Running an
-unknown repository's test suite executes that repository's code; Testwright says
-so wherever it matters.
+generators. Generation backends implement `GeneratorBackend`; the deterministic
+backend needs no external service, and `backend = "command:<argv>"` (or
+`--backend command:<argv>`) runs an external generator whose JSON output is held
+to the identical verification bar — that seam is where a model-backed generator
+plugs in. Verification is mandatory and sits downstream of every backend, so no
+backend can emit an unverified test.
+
+Sandbox honesty: execution is bounded by a wall-clock timeout with process-tree
+kill (POSIX uses its own process group; Windows uses taskkill /T). On POSIX an
+address-space rlimit is additionally applied; Windows offers no portable
+equivalent, so memory is not bounded there. Because target code runs inside the
+sandbox, a repository containing modules named `pytest.py` or `unittest.py` at
+its root could shadow the real runner during verification; treat unknown
+repositories accordingly.

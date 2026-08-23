@@ -85,7 +85,6 @@ def _has_export_before(masked: str, idx: int) -> bool:
     return masked[j + 1 : word_end] == "export"
 
 
-def _line_span(src: str, start_idx: int, end_idx: int) -> tuple[int, int]:
     begin_off = offset_of_line(src, line_of(src, start_idx))
     end_line_no = min(line_of(src, end_idx) + 1, src.count("\n") + 2)
     return begin_off, offset_of_line(src, end_line_no)
@@ -489,6 +488,4 @@ class JavaScriptAnalyzer(Analyzer):
         return names
 
 
-_DEFAULT_FUNC = re.compile(r"\bexport\s+default\s+(async\s+)?function\s*\(")
-_DEFAULT_ARROW = re.compile(rf"\bexport\s+default\s+(async\s+)?\(([^()]*)\)\s*=>")
 _DEFAULT_DECL = re.compile(r"\bexport\s+default\s+(async\s+)?(?:function\s*\(|\()")

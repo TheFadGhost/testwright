@@ -1,4 +1,4 @@
-"""Summary report rendering (text, markdown) and the machine-readable schema."""
+"""Summary report rendering (human-readable text and machine-readable JSON)."""
 
 from __future__ import annotations
 
@@ -54,12 +54,19 @@ def to_json_dict(result, target: str, ranked_count: int) -> dict:
         "schema": SCHEMA,
         "target": target,
         "ranked_targets": ranked_count,
+        "note": (
+            "expected values were captured by executing each function once "
+            "(characterization tests)"
+            if result.generated
+            else None
+        ),
         "counts": counts,
         "generated": [
             {
                 "file": g["file"],
                 "language": g["language"],
                 "framework": g["framework"],
+                "content": g["content"],
                 "tests": g["tests"],
             }
             for g in result.generated
@@ -110,6 +117,12 @@ def render_text(result, target: str, ranked_count: int) -> str:
             suffix = " [mutation validated]" if any(t["mutation_validated"] for t in g["tests"]) else ""
             lines.append(f"  {g['file']}  {len(g['tests'])} test(s){suffix}")
             lines.append(f"    {names}")
+        lines.append(
+            color.muted(
+                "  expected values were captured by executing each function "
+                "once (characterization tests)"
+            )
+        )
     else:
         lines.append("  nothing was generated")
 

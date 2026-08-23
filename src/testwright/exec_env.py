@@ -49,7 +49,10 @@ def _kill_tree(proc: subprocess.Popen) -> None:
                 timeout=10,
             )
         else:
-            proc.send_signal(signal.SIGKILL)
+            import os
+            import signal
+
+            os.killpg(proc.pid, signal.SIGKILL)
     except (OSError, subprocess.TimeoutExpired, ProcessLookupError):
         try:
             proc.kill()
@@ -72,6 +75,7 @@ def run_command(
         for k, v in os.environ.items()
         if k not in ("PYTHONPATH", "NODE_OPTIONS", "COVERAGE_FILE", "PYTEST_ADDOPTS")
     }
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # never leave __pycache__ in the target
     env.setdefault("SYSTEMROOT", os.environ.get("SYSTEMROOT", ""))
     if env_overrides:
         env.update(env_overrides)
@@ -90,8 +94,11 @@ def run_command(
 
     start = time.monotonic()
     creationflags = 0
+    kwargs: dict = {}
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+    else:
+        kwargs["start_new_session"] = True  # own process group for tree kill
     try:
         proc = subprocess.Popen(  # noqa: S603 - argv list, no shell
             argv,
@@ -102,6 +109,7 @@ def run_command(
             stdin=subprocess.DEVNULL,
             preexec_fn=preexec,
             creationflags=creationflags,
+            **kwargs,
         )
     except FileNotFoundError:
         return RunResult(argv, None, "", f"executable not found: {argv[0]}", 0.0)
@@ -114,7 +122,17 @@ def run_command(
     except subprocess.TimeoutExpired:
         timed_out = True
         _kill_tree(proc)
-        out_b, err_b = proc.communicate()
+        try:
+            out_b, err_b = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            # grandchildren may still hold the pipes; give up on remaining output
+            for stream in (proc.stdout, proc.stderr):
+                try:
+                    if stream:
+                        stream.close()
+                except OSError:
+                    pass
+            out_b, err_b = b"", b""
 
     duration = time.monotonic() - start
 

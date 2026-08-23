@@ -11,6 +11,7 @@ import ast
 import json
 import re
 import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from .config import Config
 from .conventions import Conventions
 from .meaningless import check_python_test
 from .model import CodeModel, FunctionInfo
+from .runners import target_python
 from .safety import WriteGuard
 
 BOOTSTRAP = """
@@ -45,12 +47,7 @@ raise SystemExit(0 if bad == 0 else 1)
 """
 
 
-@dataclass
-class VerifiedTest:
-    name: str
-    function_id: str
-    code: str
-    mutation_validated: bool = False
+from .generate import CandidateTest as _CandidateTest  # noqa: F401 (re-exported type)
 
 
 @dataclass
@@ -66,7 +63,7 @@ class UnitOutcome:
     """Result of processing one GenerationUnit."""
 
     unit: object
-    kept: list[VerifiedTest] = field(default_factory=list)
+    kept: list[_CandidateTest] = field(default_factory=list)
     discards: list[DiscardRecord] = field(default_factory=list)
 
 
@@ -101,7 +98,7 @@ def _run_bootstrap(
     from .exec_env import run_command
 
     res = run_command(
-        ["python", str(script_path), str(cfg_path)], root, timeout=timeout
+        [target_python(), str(script_path), str(cfg_path)], root, timeout=timeout
     )
     return (
         res.exit_code if res.exit_code is not None else 1,
@@ -165,7 +162,7 @@ def verify_candidate(
             candidate_src,
         )
         cand_path.write_text(pinned, encoding="utf-8")
-        npx = "npx.cmd" if __import__("sys").platform == "win32" else "npx"
+        npx = "npx.cmd" if sys.platform == "win32" else "npx"
         runner = "jest" if framework == "jest" else framework or "jest"
         inline_cfg = json.dumps(
             {
@@ -267,6 +264,7 @@ def run_pipeline(
     mutate: bool = False,
     timeout: float = 120.0,
     progress=None,
+    backend_spec: str | None = None,
 ) -> PipelineResult:
     """Generate, verify, and (optionally) write new tests."""
     from .fsutil import temp_dir
@@ -281,6 +279,7 @@ def run_pipeline(
     from .generate.template_py import PythonTemplateBackend
 
     result = PipelineResult(root=root)
+    conv_main_guard = bool(getattr(conventions, "main_guard", False))
     if not ranked:
         result.warnings.append("no untested functions matched the ranking rules")
         return result
@@ -344,10 +343,24 @@ def run_pipeline(
             if rt.func.id in probes and rt.func.language == "javascript"
         ]
         units = []
-        if py_targets and conventions.framework != "jest":
-            units += PythonTemplateBackend().generate(model, conventions, py_targets)
-        if js_targets:
-            units += JavaScriptTemplateBackend().generate(model, conventions, js_targets)
+        external = None
+        if backend_spec:
+            from .generate.command_backend import parse_backend_spec
+
+            external = parse_backend_spec(backend_spec)
+        if external is not None:
+            if not do_execute:
+                result.warnings.append(
+                    "command backend output cannot be trusted without --execute; "
+                    "candidates will be discarded"
+                )
+            else:
+                units = external.generate(model, conventions, [rt.func for rt in ranked])
+        else:
+            if py_targets and conventions.framework != "jest":
+                units += PythonTemplateBackend().generate(model, conventions, py_targets)
+            if js_targets:
+                units += JavaScriptTemplateBackend().generate(model, conventions, js_targets)
 
         for u_idx, unit in enumerate(units, 1):
             outcome = UnitOutcome(unit=unit)
@@ -438,12 +451,17 @@ def run_pipeline(
             result.discards.extend(outcome.discards)
 
         # assemble final files
+        from .generate.template_py import finalize_unit
+
         for unit, outcome in zip(units, result.units):
             if not outcome.kept:
                 continue
             kept_names = {t.name for t in outcome.kept}
-            content = _render_unit(unit, kept_names)
-            target_abs = root / unit.test_file.replace("/", __import__("os").sep)
+            if unit.language == "javascript":
+                content = _render_unit(unit, kept_names)
+            else:
+                content = finalize_unit(unit, outcome.kept, conv_main_guard)
+            target_abs = root / unit.test_file.replace("/", '/')
             if target_abs.exists():
                 for t in outcome.kept:
                     result.discards.append(
@@ -509,7 +527,7 @@ def _measure_coverage_py(root: Path, timeout: float, extra_files: list[str], wor
     if importlib.util.find_spec("coverage") is None:
         return None
     from .exec_env import run_command
-    from .runners import detect_python_runner
+    from .runners import detect_python_runner, target_python
 
     runner = detect_python_runner(root, load_config_safe(root))
     if runner is None:
@@ -522,12 +540,12 @@ def _measure_coverage_py(root: Path, timeout: float, extra_files: list[str], wor
         inner = ["-m", "unittest", "discover", "-q"]
     else:
         return None
-    argv = ["python", "-m", "coverage", "run", "--data-file", str(dataf), "--source", "."] + inner
+    argv = [target_python(), "-m", "coverage", "run", "--data-file", str(dataf), "--source", "."] + inner
     res = run_command(argv, root, timeout=timeout)
     if res.exit_code not in (0, 1, 5):
         return None
     res2 = run_command(
-        ["python", "-m", "coverage", "json", "-o", str(jsonf), "--data-file", str(dataf)],
+        [target_python(), "-m", "coverage", "json", "-o", str(jsonf), "--data-file", str(dataf)],
         root,
         timeout=60,
     )
@@ -606,7 +624,7 @@ def validate_with_mutations(
     the candidate against the copy. A candidate that survives every applied
     mutant is discarded as weak: it executes lines but pins no behaviour.
     """
-    target_abs = root / func.file.replace("/", __import__("os").sep)
+    target_abs = root / func.file.replace("/", '/')
     try:
         original = target_abs.read_text(encoding="utf-8")
     except OSError as exc:
@@ -625,7 +643,7 @@ def validate_with_mutations(
         shutil.copytree(root, shadow, ignore=ignore, dirs_exist_ok=True)
     except shutil.Error as exc:
         return False, f"could not create the mutation shadow copy: {exc}"
-    shadow_file = shadow / func.file.replace("/", __import__("os").sep)
+    shadow_file = shadow / func.file.replace("/", '/')
     cand_dir = workdir / "candidate"
     cand_dir.mkdir(parents=True, exist_ok=True)
     ext = ".py"
@@ -671,12 +689,11 @@ class PipelineResult:
 
     def counts(self) -> dict:
         kept = sum(len(u.kept) for u in self.units)
-        discarded = sum(len(u.discards) for u in self.units)
         return {
             "functions_targeted": len({t.function_id for u in self.units for t in u.kept}
                                      | {d.function_id for d in self.discards}),
             "tests_generated": kept,
-            "tests_discarded": discarded,
+            "tests_discarded": len(self.discards),
             "mutation_validated": sum(1 for u in self.units for t in u.kept if t.mutation_validated),
         }
 
@@ -686,9 +703,7 @@ def _render_unit(unit, kept_names: set[str]) -> str:
     from .generate.template_js import js_render
 
     if getattr(unit, "language", "") == "javascript":
-        clone = unit
-        clone.tests = [t for t in unit.tests if t.name in kept_names]
-        return js_render(clone)
+        return js_render(unit, kept_names)
     tests = [t for t in unit.tests if t.name in kept_names]
     header = "\n".join(unit.header_lines).rstrip("\n")
     body = "\n\n\n".join(t.code.rstrip() for t in tests)

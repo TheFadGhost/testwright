@@ -18,7 +18,10 @@ Read this before running anything:
   test suite, and one probe call per function under test. Running an unknown
   repository's test suite executes that repository's code. Review what you point
   this tool at. Execution is bounded by a wall-clock timeout (`--timeout`,
-  default 120 s) and the whole process tree is killed on expiry.
+  default 120 s) and the whole process tree is killed on expiry; on POSIX an
+  address-space rlimit also applies (Windows has no portable equivalent, so
+  memory is not bounded there). A repository containing root modules named
+  `pytest.py` or `unittest.py` could shadow the real runner during verification.
 - Generated tests are emitted only if the verification loop executed them and
   they passed. Failing or meaningless candidates are repaired once or discarded,
   never written.
@@ -104,7 +107,10 @@ v1.0.0 tag, measured as described there:
 |-----------------|-----------|-----------|--------------------|-------------------------------|
 | py_pytest_app   | 6         | 2 weak + overwrite refusals | 6/6 | payroll/tax.py executed lines 0 -> 12 |
 | py_unittest_app | 2         | overwrite refusals          | 2/2 | geom3d.py executed lines 0 -> 5 |
-| js_jest_app     | 4         | overwrite refusals          | n/a | not measured |
+| js_jest_app     | 6         | overwrite refusals          | n/a | not measured |
+
+The JavaScript file includes error-path tests (`toThrow(RangeError)`) and a
+`toBeCloseTo` tolerance assertion for non-exact floats.
 
 Coverage delta method: `coverage.py` line coverage over repository sources,
 existing suite vs existing suite plus the generated tests. Numbers without this

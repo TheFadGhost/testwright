@@ -19,7 +19,6 @@ def mask_source(src: str) -> tuple[str, str | None]:
     i = 0
     n = len(src)
     line = 1
-    prev_sig = ""  # last significant non-space char or word before current token
 
     def blank(idx: int) -> None:
         if out[idx] != "\n":
@@ -102,7 +101,6 @@ def mask_source(src: str) -> tuple[str, str | None]:
                 i += 1
             if not closed:
                 return "".join(out), f"unterminated string starting near line {start_line}"
-            prev_sig = quote
             continue
         if c == "/":
             j = i - 1
@@ -150,8 +148,6 @@ def mask_source(src: str) -> tuple[str, str | None]:
                     blank(i)
                     i += 1
                 continue
-        if not c.isspace():
-            prev_sig = c
         i += 1
     return "".join(out), None
 
@@ -304,10 +300,11 @@ _THROW_BARE = re.compile(rf"\bthrow\s+({_IDENT})")
 def thrown_names(body_masked: str) -> list[str]:
     names: list[str] = []
     for m in _THROW_NEW.finditer(body_masked):
-        parts = m.group(1).split(".")
-        names.append(parts[-1])
+        names.append(m.group(1).split(".")[-1])
     for m in _THROW_BARE.finditer(body_masked):
-        if m.group(1) not in ("Error",):
-            pass
+        # bare `throw identifier` re-raising a value: record it only when the
+        # name itself looks like an error class
+        if m.group(1)[0].isupper():
+            names.append(m.group(1))
     seen: set[str] = set()
     return [x for x in names if not (x in seen or seen.add(x))]

@@ -74,9 +74,13 @@ class WriteGuard:
         data = self.load()
         if rel_path not in data["written"]:
             data["written"].append(rel_path)
-            self.manifest_path.write_text(
+            tmp = self.manifest_path.with_name(
+                self.manifest_path.name + ".tmp"
+            )
+            tmp.write_text(
                 json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
+            os.replace(tmp, self.manifest_path)
 
     def written_files(self) -> list[str]:
         return self.load()["written"]
