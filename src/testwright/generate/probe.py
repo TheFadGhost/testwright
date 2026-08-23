@@ -282,7 +282,7 @@ def probe_javascript(
     npx = "npx.cmd" if __import__("sys").platform == "win32" else "npx"
     script = (
         "const path = require('path');\n"
-        f"const modPath = path.resolve(process.argv[1]);\n"
+        "const modPath = path.resolve(process.argv[2]);\n"
         "let mod;\n"
         "try { mod = require(modPath); } catch (e) {\n"
         "  console.log(JSON.stringify({ok:false,error_type:'ImportError'}));\n"

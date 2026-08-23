@@ -52,10 +52,9 @@ class JavaScriptTemplateBackend(GeneratorBackend):
             mod = model.modules.get(func.file)
             if mod is None or mod.parse_error:
                 continue
-            esm = _is_esm(mod.source or "") or any(
-                i.module and not i.module.startswith(".") and False for i in []
-            )
-            esm = esm or bool(re.search(r"\bexport\s+", mod.source or ""))
+            esm = bool(re.search(r"\bexport\s+", "\n".join(
+                f.source for f in mod.functions if f.source
+            )))
             if framework == "jest" and esm:
                 continue  # jest without babel cannot execute ESM candidates
             usable = [(c, r) for c, r in cases if r.ok and r.repr_ is not None]

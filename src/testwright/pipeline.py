@@ -117,6 +117,7 @@ def verify_candidate(
     root: Path,
     timeout: float,
     workdir: Path,
+    rel_import_dir: str | None = None,
 ) -> tuple[bool, str]:
     """Execute one candidate test module in the shadow dir.
 
@@ -134,7 +135,36 @@ def verify_candidate(
     cand_path.write_text(candidate_src, encoding="utf-8")
     if language == "javascript":
         from .exec_env import run_command
+        import re as _re
 
+        # candidates are verified outside the repo: pin relative requires to
+        # the target root so module resolution works from the shadow directory
+        def _abs_require(m: "_re.Match") -> str:
+            spec = m.group(2)
+            if not spec.startswith("."):
+                return m.group(0)
+            base_dir = root / rel_import_dir if rel_import_dir else root
+            base = (base_dir / spec).resolve()
+            target = None
+            for candidate in (
+                base,
+                base.with_suffix(".js") if base.suffix == "" else None,
+                base.with_suffix(".ts") if base.suffix == "" else None,
+                base / "index.js",
+            ):
+                if candidate is not None and candidate.is_file():
+                    target = candidate
+                    break
+            abs_spec = (target or base).as_posix()
+            return f"require({m.group(1)}{abs_spec}{m.group(1)})"
+
+        # pattern consumes the closing paren; _abs_require re-emits it
+        pinned = _re.sub(
+            r"""require\((['"])([^'"]+)\1\)""",
+            _abs_require,
+            candidate_src,
+        )
+        cand_path.write_text(pinned, encoding="utf-8")
         npx = "npx.cmd" if __import__("sys").platform == "win32" else "npx"
         runner = "jest" if framework == "jest" else framework or "jest"
         inline_cfg = json.dumps(
@@ -150,7 +180,7 @@ def verify_candidate(
             [npx, runner, "--ci", "--config", inline_cfg], root, timeout=timeout
         )
         ok = res.ok
-        detail = "" if ok else res.tail()
+        detail = "" if ok else (res.stdout + "\n" + res.stderr)[:3500]
         return ok, detail
     if framework == "unittest":
         code, out, err = _run_bootstrap(
@@ -274,12 +304,15 @@ def run_pipeline(
             if blocker:
                 result.skipped_functions.append((func.id, blocker))
                 continue
-            module_dotted = _module_for(model, func)
-            if module_dotted is None:
-                result.skipped_functions.append(
-                    (func.id, "cannot derive an importable module path")
-                )
-                continue
+            if func.language == "python":
+                module_dotted = _module_for(model, func)
+                if module_dotted is None:
+                    result.skipped_functions.append(
+                        (func.id, "cannot derive an importable module path")
+                    )
+                    continue
+            else:
+                module_dotted = None
             cases, why = synthesize_cases(func)
             if why:
                 result.skipped_functions.append((func.id, why))
@@ -328,9 +361,11 @@ def run_pipeline(
                         DiscardRecord(cand.function_id, cand.name, f"meaningless: {verdict.reason}")
                     )
             kept_names = {t.name for t in unit.tests} - {d.name for d in outcome.discards}
+            rel_dir = "/".join(unit.test_file.split("/")[:-1]) or None
             src_subset = _render_unit(unit, kept_names)
             ok, detail = verify_candidate(
-                src_subset, unit.language, unit.framework, root, timeout, workdir
+                src_subset, unit.language, unit.framework, root, timeout, workdir,
+                rel_import_dir=rel_dir,
             )
             if not ok and len(kept_names) > 1:
                 survivors: set[str] = set()
@@ -339,7 +374,8 @@ def run_pipeline(
                         continue
                     solo = _render_unit(unit, {cand.name})
                     sok, sdetail = verify_candidate(
-                        solo, unit.language, unit.framework, root, timeout, workdir
+                        solo, unit.language, unit.framework, root, timeout, workdir,
+                        rel_import_dir=rel_dir,
                     )
                     if sok:
                         survivors.add(cand.name)
