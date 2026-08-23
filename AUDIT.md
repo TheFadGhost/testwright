@@ -67,6 +67,17 @@ Known accepted limitations (documented, deliberate):
 - jest + ESM sources are skipped with an explanation rather than mis-generated
 - unpackaged nested Python modules are skipped (no reliable import path)
 
+## Regression re-audit (final gate before v1.0.0)
+
+A fresh narrow re-audit verified each prior fix held: repr gate value path,
+JS escaping completeness, clean containment, language enable matrix, sandbox
+bytecode/kill/drain behavior, and a clean fixture tree. Findings from this pass
+were fixed immediately and are covered by tests: unvalidated exception-type
+identifiers in Python `raises` candidates now require a strict identifier match
+(mirroring the JS backend), a duplicated dead `cmd_clean` definition was
+removed, the probe sentinel exclusion list was aligned across backends, and the
+language-config disable matrix gained unit tests. Final suite: 40 passed.
+
 ## Stranger test / clean run
 
 - full suite re-run from a clean checkout state: green (37 tests)
