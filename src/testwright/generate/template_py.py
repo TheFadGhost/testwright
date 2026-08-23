@@ -10,6 +10,7 @@ from . import CandidateTest, GenerationUnit, GeneratorBackend
 from .probe import ProbeCase, ProbeResult, repr_is_comparable
 
 _FLOATY = re.compile(r"-?\d+\.\d{11,}")
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _assert_py(expected: str, framework: str) -> str:
@@ -149,7 +150,8 @@ class PythonTemplateBackend(GeneratorBackend):
             if not r.ok
             and r.error_type
             and r.error_type
-            not in ("TimeoutError", "NoOutput", "BadProbeOutput", "ImportError")
+            not in ("TimeoutError", "NoOutput", "BadProbeOutput", "ImportError", "NotFound")
+            and _IDENTIFIER.fullmatch(r.error_type)
         ]
         if framework != "unittest":
             for case, result in usable:

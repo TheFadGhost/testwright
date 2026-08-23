@@ -245,8 +245,6 @@ def cmd_generate(args) -> int:
 
 def cmd_clean(args) -> int:
     root, _config = _load(args.path, args.config, [], [], None)
-def cmd_clean(args) -> int:
-    root, _config = _load(args.path, args.config, [], [], None)
     guard = WriteGuard(root)
     written = guard.written_files()
     removed = 0
