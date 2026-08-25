@@ -1,5 +1,12 @@
 # Testwright
 
+> **built with ox alpha**
+>
+> most of this was written in august 2026 during the free preview window of
+> [ox alpha](https://openrouter.ai/stealth/ox-alpha), an anonymous stealth model
+> that turned up on openrouter for about a week. i set the direction and reviewed
+> what came back. the tests are real and they pass — clone it and run them.
+
 Testwright scans a codebase for functions with no test coverage and writes
 verified unit tests that match the project's own conventions, for developers
 inheriting a repository with a thin test suite.
